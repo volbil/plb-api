@@ -1,0 +1,10 @@
+# python
+*/**/__pycache__/*
+*.db-journal
+__pycache__/
+venv/*
+*.db
+
+# misc
+.DS_STORE
+config.py
