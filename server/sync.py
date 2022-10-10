@@ -73,6 +73,7 @@ def process_transaction(txid, block=None, index=None):
             continue
 
         amount = utils.amount(vout["valueSat"])
+        amount_raw = vout["valueSat"]
         currency = "PLB"
         timelock = 0
 
@@ -80,6 +81,7 @@ def process_transaction(txid, block=None, index=None):
             timelock = vout["scriptPubKey"]["token"]["timelock"]
             currency = vout["scriptPubKey"]["token"]["name"]
             amount = vout["scriptPubKey"]["token"]["amount"]
+            amount_raw = vout["scriptPubKey"]["token"]["satoshis"]
 
         if "timelock" in vout["scriptPubKey"]:
             timelock = vout["scriptPubKey"]["timelock"]
@@ -93,7 +95,7 @@ def process_transaction(txid, block=None, index=None):
         address.transactions.add(transaction)
 
         output = OutputService.create(
-            transaction, amount, vout["valueSat"],
+            transaction, amount, amount_raw,
             vout["scriptPubKey"]["type"], address,
             vout["scriptPubKey"]["hex"],
             txid, vout["n"], currency,
