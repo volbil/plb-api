@@ -52,19 +52,13 @@ class TransactionService(object):
         return Transaction.get(txid=txid)
 
     @classmethod
-    def create(cls, amount, txid, created, locktime, size, block,
+    def create(cls, amount, txid, created, locktime, size, height, block=None,
                coinbase=False, coinstake=False):
         return Transaction(
             amount=amount, txid=txid, created=created,
-            locktime=locktime, size=size, coinbase=coinbase,
-            coinstake=coinstake, block=block
+            locktime=locktime, size=size, height=height,
+            coinbase=coinbase, coinstake=coinstake, block=block
         )
-
-    @classmethod
-    def transactions(cls, page=1, pagesize=10, currency="PLB"):
-        query = orm.select((o.transaction, sum(o.amount), o.transaction.id) for o in Output if o.currency == currency).distinct()
-        query = query.order_by(-3)
-        return query
 
     @classmethod
     def total_transactions(cls, currency="PLB"):
@@ -107,12 +101,12 @@ class OutputService(object):
         return Output.get(transaction=transaction, n=n)
 
     @classmethod
-    def create(cls, transaction, amount, category, address, raw, n,
-               currency="PLB", timelock=0):
+    def create(cls, transaction, amount, amount_raw, category, address, raw,
+               txid, n, currency="PLB", timelock=0):
         return Output(
-            transaction=transaction, amount=amount, category=category,
-            address=address, raw=raw, n=n, currency=currency,
-            timelock=timelock
+            transaction=transaction, amount=amount, amount_raw=amount_raw,
+            category=category, address=address, raw=raw, txid=txid,
+            n=n, currency=currency, timelock=timelock
         )
 
     @classmethod

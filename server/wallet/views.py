@@ -1,8 +1,9 @@
 """Wallet API"""
+from ast import arg
+from locale import currency
 from webargs.flaskparser import use_args
 from flask import Blueprint
 from pony import orm
-import json
 
 from ..methods.transaction import Transaction as NodeTransaction
 from .args import history_args, addresses_args, unspent_args
@@ -17,8 +18,8 @@ from ..services import BlockService
 from ..services import TokenService
 from ..methods.token import Token
 from ..models import Transaction
-from ..models import IPFSCache
 from .utils import display_tx
+from ..models import Output
 from ..tools import display
 from .. import utils
 
@@ -222,11 +223,41 @@ def decode_raw(args):
 
     return data
 
-@wallet.route("/unspent/<string:address>", methods=["GET"])
+@wallet.route("/unspent/<string:raw_address>", methods=["GET"])
 @use_args(unspent_args, location="query")
-def get_unspent(args, address):
+@orm.db_session
+def get_unspent(args, raw_address):
+    check_amount = utils.satoshis(args["amount"])
+    total_amount = 0
+    result = []
+
+    if (address := AddressService.get_by_address(raw_address)):
+        outputs = Output.select(
+            lambda o: o.address == address and o.currency == args["token"] and not o.spent
+        )
+
+        for output in outputs:
+            result.append({
+                "height": output.transaction.display_height,
+                "index": output.n,
+                "script": output.raw,
+                "txid": output.transaction.txid,
+                "value": output.amount_raw
+            })
+
+            total_amount += output.amount_raw
+
+            if check_amount > 0 and total_amount >= check_amount:
+                break
+
+    return utils.response(result)
+
+@wallet.route("/old_unspent/<string:address>", methods=["GET"])
+@use_args(unspent_args, location="query")
+def get_old_unspent(args, address):
     """Get address UTXOs"""
     return Address.unspent(address, args["amount"], args["token"])
+
 
 @wallet.route("/check", methods=["POST"])
 @use_args(check_args, location="JSON")
@@ -246,13 +277,3 @@ def get_tokens(args):
 def get_info():
     """Return chain info"""
     return General.info()
-
-@wallet.route("/ipfs/<string:ipfs>", methods=["GET"])
-@orm.db_session
-def get_ipfs_cached(ipfs):
-    if (entry := IPFSCache.select(
-        lambda c: c.parsed and c.content and c.ipfs == ipfs
-    ).first()):
-        return json.loads(entry.content)
-
-    return "Not found", 404

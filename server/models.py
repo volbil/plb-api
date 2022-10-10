@@ -11,6 +11,8 @@ import config
 #     db=config.db["db"]
 # )
 
+MEMPOOL_HEIGHT = 999999999999
+
 db = orm.Database(**config.db_params)
 
 class Token(db.Entity):
@@ -27,9 +29,6 @@ class Token(db.Entity):
 
     @property
     def display(self):
-        # holders = Balance.select(
-        #     lambda b: b.balance > 0 and b.currency == self.name
-        # ).count(distinct=False)
 
         return {
             "logo": utils.get_logo(self.name),
@@ -72,11 +71,12 @@ class Transaction(db.Entity):
     coinstake = orm.Required(bool, default=False)
     coinbase = orm.Required(bool, default=False)
     txid = orm.Required(str, index=True)
+    height = orm.Required(int, size=64)
     created = orm.Required(datetime)
     locktime = orm.Required(int)
     size = orm.Required(int)
 
-    block = orm.Required("Block")
+    block = orm.Optional("Block")
     outputs = orm.Set("Output")
     inputs = orm.Set("Input")
 
@@ -99,11 +99,23 @@ class Transaction(db.Entity):
         ).count() > 0
 
     @property
+    def display_height(self):
+        height = self.height
+
+        if height == MEMPOOL_HEIGHT:
+            height = -1
+
+        return height
+
+    @property
     def confirmations(self):
+        if self.height == MEMPOOL_HEIGHT:
+            return 0
+
         latest_blocks = Block.select().order_by(
             orm.desc(Block.height)
         ).first()
-        return latest_blocks.height - self.block.height + 1
+        return latest_blocks.height - self.height + 1
 
     def display(self):
         output_amount = 0
@@ -148,8 +160,8 @@ class Transaction(db.Entity):
             "timestamp": int(self.created.timestamp()),
             "amount": float(self.amount),
             "coinstake": self.coinstake,
-            "height": self.block.height,
             "coinbase": self.coinbase,
+            "height": self.display_height,
             "txid": self.txid,
             "size": self.size,
             "outputs": outputs,
@@ -201,9 +213,12 @@ class Output(db.Entity):
     amount = orm.Required(Decimal, precision=20, scale=8)
     currency = orm.Required(str, default="PLB", index=True)
     timelock = orm.Required(int, default=0)
+    amount_raw = orm.Required(int, size=64)
     address = orm.Required("Address")
     category = orm.Optional(str)
     raw = orm.Optional(str)
+
+    txid = orm.Required(str)
     n = orm.Required(int)
 
     vin = orm.Optional("Input", cascade_delete=True)
@@ -230,14 +245,5 @@ class TransactionIndex(db.Entity):
     amount = orm.Required(Decimal, precision=20, scale=8)
     transaction = orm.Required("Transaction")
     created = orm.Required(datetime)
-
-class IPFSCache(db.Entity):
-    _table_ = "chain_ipfs_cache"
-
-    content = orm.Optional(orm.LongStr, nullable=True)
-    parsed = orm.Required(bool, default=False)
-    attempts = orm.Required(int, default=0)
-    mime = orm.Optional(str, nullable=True)
-    ipfs = orm.Required(str)
 
 db.generate_mapping(create_tables=True)

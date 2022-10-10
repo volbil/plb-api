@@ -48,12 +48,12 @@ def display_tx(db_tx):
             output_amount += utils.satoshis(vout.amount)
 
     return {
-        "confirmations": latest_blocks.height - db_tx.block.height + 1,
+        "confirmations": db_tx.confirmations,
         "fee": input_amount - output_amount,
         "timestamp": int(db_tx.created.timestamp()),
         "amount": utils.satoshis(db_tx.amount),
+        "height": db_tx.display_height,
         "coinstake": db_tx.coinstake,
-        "height": db_tx.block.height,
         "coinbase": db_tx.coinbase,
         "txid": db_tx.txid,
         "size": db_tx.size,

@@ -3,20 +3,125 @@ from .services import TransactionService
 from .services import BalanceService
 from .methods.general import General
 from .services import AddressService
+from .models import TransactionIndex
 from .services import OutputService
 from .services import InputService
 from .services import BlockService
 from .methods.block import Block
+from .utils import make_request
 from datetime import datetime
+from .models import Token
 from pony import orm
 from . import utils
-import requests
 
-from .models import TransactionIndex
-from .models import IPFSCache
+MEMPOOL_HEIGHT = 999999999999
 
-from .utils import make_request
-from .models import Token
+def check_mempool_invalid(txid):
+    tx_data = Transaction.info(txid, False)["result"]
+
+    for vin in tx_data["vin"]:
+        if "coinbase" in vin:
+            continue
+        
+        prev_tx = TransactionService.get_by_txid(vin["txid"])
+        output = OutputService.get_by_prev(prev_tx, vin["vout"])
+
+        if output.spent:
+            log_message(f"Deleting conflicting transaction {conflic_txid}")
+
+            conflic_txid = output.vin.transaction.txid
+            output.vin.transaction.delete()
+
+def process_transaction(txid, block=None, index=None):
+    tx_data = Transaction.info(txid, False)["result"]
+    created = datetime.fromtimestamp(tx_data["timestamp"])
+
+    transaction_height = MEMPOOL_HEIGHT
+    coinstake = False
+    coinbase = False
+    indexes = {}
+
+    if block:
+        coinbase = block.stake is False and index == 0
+        coinstake = block.stake and index == 1
+        transaction_height = block.height
+
+    transaction = TransactionService.create(
+        utils.amount(tx_data["amount"]), tx_data["txid"],
+        created, tx_data["locktime"], tx_data["size"],
+        transaction_height, block,
+        coinbase, coinstake,
+    )
+
+    for vin in tx_data["vin"]:
+        if "coinbase" in vin:
+            continue
+
+        prev_tx = TransactionService.get_by_txid(vin["txid"])
+        prev_out = OutputService.get_by_prev(prev_tx, vin["vout"])
+
+        prev_out.address.transactions.add(transaction)
+        balance = BalanceService.get_by_currency(prev_out.address, prev_out.currency)
+        balance.balance -= prev_out.amount
+
+        InputService.create(
+            vin["sequence"], vin["vout"], transaction, prev_out
+        )
+
+    for vout in tx_data["vout"]:
+        if vout["scriptPubKey"]["type"] in ["nonstandard", "nulldata"]:
+            continue
+
+        amount = utils.amount(vout["valueSat"])
+        currency = "PLB"
+        timelock = 0
+
+        if "token" in vout["scriptPubKey"]:
+            timelock = vout["scriptPubKey"]["token"]["timelock"]
+            currency = vout["scriptPubKey"]["token"]["name"]
+            amount = vout["scriptPubKey"]["token"]["amount"]
+
+        if "timelock" in vout["scriptPubKey"]:
+            timelock = vout["scriptPubKey"]["timelock"]
+
+        script = vout["scriptPubKey"]["addresses"][0]
+        address = AddressService.get_by_address(script)
+
+        if not address:
+            address = AddressService.create(script)
+
+        address.transactions.add(transaction)
+
+        output = OutputService.create(
+            transaction, amount, vout["valueSat"],
+            vout["scriptPubKey"]["type"], address,
+            vout["scriptPubKey"]["hex"],
+            txid, vout["n"], currency,
+            timelock
+        )
+
+        balance = BalanceService.get_by_currency(address, currency)
+
+        if not balance:
+            balance = BalanceService.create(address, currency)
+
+        balance.balance += output.amount
+
+        if output.currency not in indexes:
+            indexes[output.currency] = 0
+
+        indexes[output.currency] += output.amount
+
+    for currency in indexes:
+        if TransactionIndex.get(currency=currency, transaction=transaction):
+            continue
+
+        TransactionIndex(**{
+            "created": transaction.created,
+            "amount": indexes[currency],
+            "transaction": transaction,
+            "currency": currency,
+        })
 
 def log_block(message, block, tx=[]):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -37,68 +142,6 @@ def token_category(name):
     if name[0] == "!":
         return "owner"
     return "root"
-
-def get_ipfs_data(ipfs):
-    ALLOWED_MIME = ["application/json"]
-    TIMEOUT = 30
-
-    try:
-        endpoint = f"https://ipfs.aok.network/ipfs/{ipfs}"
-        content = None
-        parsed = False
-        mime = None
-
-        head = requests.head(endpoint, timeout=TIMEOUT)
-
-        if head.status_code == 200:
-            parsed = True
-
-            if head.headers["Content-Type"] in ALLOWED_MIME:
-                r = requests.get(endpoint, timeout=TIMEOUT)
-
-                mime = head.headers["Content-Type"]
-                content = r.text
-
-        return parsed, content, mime
-
-    except requests.exceptions.ReadTimeout:
-        return False, None, None
-
-@orm.db_session
-def sync_ipfs_cache():
-    log_message("Updating ipfs cache")
-
-    tokens = Token.select(
-        lambda t: t.ipfs is not None
-    )
-
-    for token in tokens:
-        if not IPFSCache.get(ipfs=token.ipfs):
-            IPFSCache(**{
-                "ipfs": token.ipfs
-            })
-
-    orm.commit()
-
-    cache = IPFSCache.select(
-        lambda c: not c.parsed
-    ).order_by(IPFSCache.attempts)
-
-    for entry in cache:
-        log_message(f"Parsing IPFS data for {entry.ipfs}")
-
-        parsed, content, mime = get_ipfs_data(entry.ipfs)
-
-        log_message(f"Parsed: {str(parsed)}")
-
-        entry.content = content
-        entry.parsed = parsed
-        entry.mime = mime
-
-        if not entry.parsed:
-            entry.attempts += 1
-
-        orm.commit()
 
 @orm.db_session
 def sync_tokens():
@@ -137,8 +180,6 @@ def sync_tokens():
                 if token.reissuable != data["reissuable"]:
                     log_message(f"Updated reissuable for {name}")
                     token.reissuable = data["reissuable"]
-
-                # ToDo: Update IPFS (?)
 
 @orm.db_session
 def sync_blocks():
@@ -192,86 +233,24 @@ def sync_blocks():
             if block.stake and index == 0:
                 continue
 
-            tx_data = Transaction.info(txid, False)["result"]
-            created = datetime.fromtimestamp(tx_data["time"])
-            coinbase = block.stake is False and index == 0
-            coinstake = block.stake and index == 1
-            indexes = {}
+            # Confirm mempool transaction
+            if transaction := TransactionService.get_by_txid(txid=txid):
+                transaction.height = block.height
+                transaction.block = block
+                continue
 
-            transaction = TransactionService.create(
-                utils.amount(tx_data["amount"]), tx_data["txid"],
-                created, tx_data["locktime"], tx_data["size"], block,
-                coinbase, coinstake
-            )
+            check_mempool_invalid(txid)
 
-            for vin in tx_data["vin"]:
-                if "coinbase" in vin:
-                    continue
-
-                prev_tx = TransactionService.get_by_txid(vin["txid"])
-                prev_out = OutputService.get_by_prev(prev_tx, vin["vout"])
-
-                prev_out.address.transactions.add(transaction)
-                balance = BalanceService.get_by_currency(prev_out.address, prev_out.currency)
-                balance.balance -= prev_out.amount
-
-                InputService.create(
-                    vin["sequence"], vin["vout"], transaction, prev_out
-                )
-
-            for vout in tx_data["vout"]:
-                if vout["scriptPubKey"]["type"] in ["nonstandard", "nulldata"]:
-                    continue
-
-                amount = utils.amount(vout["valueSat"])
-                currency = "PLB"
-                timelock = 0
-
-                if "token" in vout["scriptPubKey"]:
-                    timelock = vout["scriptPubKey"]["token"]["timelock"]
-                    currency = vout["scriptPubKey"]["token"]["name"]
-                    amount = vout["scriptPubKey"]["token"]["amount"]
-
-                if "timelock" in vout["scriptPubKey"]:
-                    timelock = vout["scriptPubKey"]["timelock"]
-
-                script = vout["scriptPubKey"]["addresses"][0]
-                address = AddressService.get_by_address(script)
-
-                if not address:
-                    address = AddressService.create(script)
-
-                address.transactions.add(transaction)
-
-                output = OutputService.create(
-                    transaction, amount, vout["scriptPubKey"]["type"],
-                    address, vout["scriptPubKey"]["hex"],
-                    vout["n"], currency,
-                    timelock
-                )
-
-                balance = BalanceService.get_by_currency(address, currency)
-
-                if not balance:
-                    balance = BalanceService.create(address, currency)
-
-                balance.balance += output.amount
-
-                if output.currency not in indexes:
-                    indexes[output.currency] = 0
-
-                indexes[output.currency] += output.amount
-
-            for currency in indexes:
-                if TransactionIndex.get(currency=currency, transaction=transaction):
-                    continue
-
-                TransactionIndex(**{
-                    "created": transaction.created,
-                    "amount": indexes[currency],
-                    "transaction": transaction,
-                    "currency": currency,
-                })
+            process_transaction(txid, block, index)
 
         latest_block = block
         orm.commit()
+
+@orm.db_session
+def sync_mempool():
+    mempool = General.mempool()["result"]
+
+    for txid in mempool["tx"]:
+        if not TransactionService.get_by_txid(txid):
+            process_transaction(txid)
+            orm.commit()
