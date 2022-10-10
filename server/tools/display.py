@@ -54,7 +54,7 @@ def tx_to_db(data):
         timelock = 0
 
         if "token" in vout["scriptPubKey"]:
-            timelock = vout["scriptPubKey"]["token"]["token_lock_time"]
+            timelock = vout["scriptPubKey"]["token"]["timelock"]
             currency = vout["scriptPubKey"]["token"]["name"]
             amount = vout["scriptPubKey"]["token"]["amount"]
 
@@ -134,7 +134,7 @@ def tx_to_wallet(data):
         timelock = 0
 
         if "token" in vout["scriptPubKey"]:
-            timelock = vout["scriptPubKey"]["token"]["token_lock_time"]
+            timelock = vout["scriptPubKey"]["token"]["timelock"]
             currency = vout["scriptPubKey"]["token"]["name"]
             amount = utils.satoshis(vout["scriptPubKey"]["token"]["amount"])
 
