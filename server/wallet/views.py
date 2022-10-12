@@ -10,6 +10,7 @@ from .args import history_args, addresses_args, unspent_args
 from .args import broadcast_args, token_args
 from ..services import TransactionService
 from .args import check_args, utxo_args
+from ..sync import process_transaction
 from ..methods.address import Address
 from ..methods.general import General
 from ..services import AddressService
@@ -171,9 +172,15 @@ def get_utxo(args):
 
 @wallet.route("/broadcast", methods=["POST"])
 @use_args(broadcast_args, location="json")
+@orm.db_session
 def send_broadcast(args):
     """Broadcast raw transaction"""
-    return NodeTransaction.broadcast(args["raw"])
+    data = NodeTransaction.broadcast(args["raw"])
+
+    if not data["error"]:
+        process_transaction(data["result"])
+
+    return data
 
 @wallet.route("/decode", methods=["POST"])
 @use_args(broadcast_args, location="json")
@@ -251,13 +258,6 @@ def get_unspent(args, raw_address):
                 break
 
     return utils.response(result)
-
-@wallet.route("/old_unspent/<string:address>", methods=["GET"])
-@use_args(unspent_args, location="query")
-def get_old_unspent(args, address):
-    """Get address UTXOs"""
-    return Address.unspent(address, args["amount"], args["token"])
-
 
 @wallet.route("/check", methods=["POST"])
 @use_args(check_args, location="JSON")
