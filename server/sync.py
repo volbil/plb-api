@@ -27,9 +27,8 @@ def check_mempool_invalid(txid):
         output = OutputService.get_by_prev(prev_tx, vin["vout"])
 
         if output.spent:
-            log_message(f"Deleting conflicting transaction {conflic_txid}")
-
             conflic_txid = output.vin.transaction.txid
+            log_message(f"Deleting conflicting transaction {conflic_txid}")
             output.vin.transaction.delete()
 
 def process_transaction(txid, block=None, index=None):
