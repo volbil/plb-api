@@ -1,7 +1,6 @@
 """Wallet API"""
-from ast import arg
-from locale import currency
 from webargs.flaskparser import use_args
+from datetime import datetime
 from flask import Blueprint
 from pony import orm
 
@@ -235,6 +234,7 @@ def decode_raw(args):
 @orm.db_session
 def get_unspent(args, raw_address):
     check_amount = utils.satoshis(args["amount"])
+    block = BlockService.latest_block()
     total_amount = 0
     result = []
 
@@ -244,6 +244,17 @@ def get_unspent(args, raw_address):
         )
 
         for output in outputs:
+            if output.timelock > 0:
+
+                if output.timelock <= 50000000:
+                    if output.timelock > block.height:
+                        continue
+
+                else:
+                    lock = datetime.fromtimestamp(output.timelock)
+                    if lock > block.created:
+                        continue
+
             result.append({
                 "height": output.transaction.display_height,
                 "index": output.n,
