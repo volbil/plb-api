@@ -145,7 +145,7 @@ def plain_supply():
 
 
 @rest.route("/plain/supply/circulation", methods=["GET"])
-def plain_supply():
+def plain_supply_circulation():
     return Response(str(200_000_000), mimetype="text/plain")
 
 
