@@ -141,7 +141,12 @@ def verify_message(args):
 
 @rest.route("/plain/supply", methods=["GET"])
 def plain_supply():
-    return Response(str(1_002_500_000), mimetype="text/plain")
+    return Response(str(1_000_000_000), mimetype="text/plain")
+
+
+@rest.route("/plain/supply/circulation", methods=["GET"])
+def plain_supply():
+    return Response(str(200_000_000), mimetype="text/plain")
 
 
 @rest.route("/plain/supply/<string:token>", methods=["GET"])
