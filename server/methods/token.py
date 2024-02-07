@@ -12,7 +12,7 @@ class Token():
 
         data = utils.make_request("listtokens", [f"{search}*", True, count, offset])
 
-        remove = []
+        remove = ["DEV"]
 
         # ToDo: temporary solution, remove later
         for name in data["result"]:
