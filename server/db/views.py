@@ -66,9 +66,11 @@ def transactions(args, token):
         transaction = index.transaction
         result.append(
             {
-                "height": transaction.block.height,
-                "blockhash": transaction.block.blockhash,
-                "timestamp": int(transaction.block.created.timestamp()),
+                "height": transaction.height,
+                "blockhash": (
+                    transaction.block.blockhash if transaction.block else None
+                ),
+                "timestamp": int(transaction.created.timestamp()),
                 "confirmations": transaction.confirmations,
                 "coinstake": transaction.coinstake,
                 "coinbase": transaction.coinbase,
