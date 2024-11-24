@@ -5,7 +5,7 @@ import json
 
 
 def get_logo(name):
-    cache_fix = 7
+    cache_fix = 8
 
     if name == "USDT":
         return f"https://api.paladeum.io/static/USDT.svg?{cache_fix}"
