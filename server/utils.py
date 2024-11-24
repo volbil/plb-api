@@ -5,7 +5,7 @@ import json
 
 
 def get_logo(name):
-    cache_fix = 6
+    cache_fix = 7
 
     if name == "USDT":
         return f"https://api.paladeum.io/static/USDT.svg?{cache_fix}"
@@ -20,7 +20,7 @@ def get_logo(name):
         return f"https://api.paladeum.io/static/KRW.svg?{cache_fix}"
 
     if name == "PNC":
-        return f"https://api.paladeum.io/static/KRW.svg?{cache_fix}"
+        return f"https://api.paladeum.io/static/PNC.png?{cache_fix}"
 
     boring_name = name.replace("/", ":")
 
